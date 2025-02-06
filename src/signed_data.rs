@@ -12,7 +12,7 @@
 // ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 // OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-use crate::der::{self, FromDer};
+use crate::der::{self, FromDer, NormalizedAlgorithmIdentifier};
 use crate::error::{DerTypeId, Error};
 use crate::verify_cert::Budget;
 
@@ -181,10 +181,20 @@ pub(crate) fn verify_signed_data(
     // Parse the signature.
     //
     let mut found_signature_alg_match = false;
-    for supported_alg in supported_algorithms
-        .iter()
-        .filter(|alg| alg.signature_alg_id().as_ref() == signed_data.algorithm.as_slice_less_safe())
-    {
+
+    let normalized_signature_alg = signed_data
+        .algorithm
+        .read_all(Error::BadDer, NormalizedAlgorithmIdentifier::from_der)
+        .unwrap();
+
+    for supported_alg in supported_algorithms.iter().filter(|alg| {
+        let alg_id = alg.signature_alg_id();
+        let normalized_supported_alg = untrusted::Input::from(alg_id.as_ref())
+            .read_all(Error::BadDer, NormalizedAlgorithmIdentifier::from_der)
+            .unwrap();
+
+        normalized_signature_alg == normalized_supported_alg
+    }) {
         match verify_signature(
             *supported_alg,
             spki_value,

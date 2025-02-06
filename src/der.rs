@@ -464,6 +464,57 @@ macro_rules! oid {
     )
 }
 
+const ALGORITHM_IDENTIFIER_PARAMETERS_NULL: [u8; 2] = [5, 0];
+
+/// A normalized AlgorithmIdentifier type.
+/// This type will treat a `NULL` parameters field the same as absent parameters.
+#[derive(Debug)]
+pub(crate) struct NormalizedAlgorithmIdentifier<'a> {
+    pub algorithm: untrusted::Input<'a>,
+    pub parameters: Option<untrusted::Input<'a>>,
+}
+
+impl PartialEq for NormalizedAlgorithmIdentifier<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.algorithm.as_slice_less_safe() == other.algorithm.as_slice_less_safe()
+            && self
+                .parameters
+                .map(|p| untrusted::Input::as_slice_less_safe(&p))
+                == other
+                    .parameters
+                    .map(|p| untrusted::Input::as_slice_less_safe(&p))
+    }
+}
+
+impl<'a> FromDer<'a> for NormalizedAlgorithmIdentifier<'a> {
+    const TYPE_ID: DerTypeId = DerTypeId::SignatureAlgorithm;
+
+    fn from_der(reader: &mut untrusted::Reader<'a>) -> Result<Self, Error> {
+        if !reader.peek(Tag::OID.into()) {
+            return Err(Error::BadDer);
+        }
+
+        let (_, algorithm) = read_tag_and_get_value(reader)?;
+        let parameters = if !reader.at_end() {
+            let bytes = reader.read_bytes_to_end();
+            if bytes.as_slice_less_safe() == ALGORITHM_IDENTIFIER_PARAMETERS_NULL {
+                None
+            } else {
+                Some(bytes)
+            }
+        } else {
+            None
+        };
+
+        let algorithm_identifier = NormalizedAlgorithmIdentifier {
+            algorithm,
+            parameters,
+        };
+
+        Ok(algorithm_identifier)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::DerTypeId;
